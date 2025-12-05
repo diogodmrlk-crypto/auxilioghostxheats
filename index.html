@@ -10,6 +10,7 @@
     <meta name="apple-mobile-web-app-title" content="Mercado Pago">
     <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;700&display=swap" rel="stylesheet">
     <style>
+        /* (mantive seu CSS original, só cortei comentário) */
         body {
             font-family: 'Quicksand', sans-serif;
             margin: 0;
@@ -184,10 +185,10 @@
                 <option value="peito">Peito</option>
             </select>
             <div class="button-group">
-                <button class="action-btn" id="btnAtirar" onclick="toggleButton(this, 'Ao Atirar')">Ao Atirar</button>
-                <button class="action-btn" id="btnOlhar" onclick="toggleButton(this, 'Ao Olhar')">Ao Olhar</button>
+                <button class="action-btn" id="btnAtirar" onclick="toggleButton(this, 'Ao Atirar')" type="button">Ao Atirar</button>
+                <button class="action-btn" id="btnOlhar" onclick="toggleButton(this, 'Ao Olhar')" type="button">Ao Olhar</button>
             </div>
-            <button class="inject-btn" onclick="injectFiles()">Inject Free Fire Files</button>
+            <button class="inject-btn" onclick="injectFiles()" type="button">Inject Free Fire Files</button>
         </div>
 
         <div class="option-block" id="configOptions">
@@ -219,57 +220,95 @@
 
         document.getElementById('loginForm').addEventListener('submit', async function(e) {
             e.preventDefault();
-            const key = document.getElementById('passwordInput').value.trim();
+            const rawKey = document.getElementById('passwordInput').value;
+            const key = (rawKey || '').trim();
             const errorMessage = document.getElementById('errorMessage');
 
             if (!key) {
-                errorMessage.innerText = "Digite uma key!";
-                errorMessage.classList.add('show');
-                setTimeout(() => errorMessage.classList.remove('show'), 2500);
+                showError("Digite uma key!");
                 return;
             }
 
             try {
+                // 1) tenta filtro direto (se o MockAPI estiver configurado para pesquisar por campo 'key')
                 const q = encodeURIComponent(key);
-                const res = await fetch(`${MOCKAPI_URL}?key=${q}`);
-                if (!res.ok) throw new Error("Erro ao consultar MockAPI");
-                const data = await res.json();
+                let res = await fetch(`${MOCKAPI_URL}?key=${q}`);
+                if (!res.ok) {
+                    // se a request falhar (CORS, 404, 500) tenta capturar status e mostrar mensagem amigável
+                    throw new Error("Erro na requisição: " + res.status);
+                }
+                let data = await res.json();
+
+                // 2) Se não encontrou, tenta buscar todos e procurar localmente (fallback)
+                if (!data || data.length === 0) {
+                    const fallbackRes = await fetch(MOCKAPI_URL);
+                    if (!fallbackRes.ok) throw new Error("Erro ao buscar keys (fallback).");
+                    const all = await fallbackRes.json();
+                    // compara tratando espaços e sem case-sensitive
+                    const found = all.find(item => {
+                        if (!item || typeof item.key === 'undefined') return false;
+                        const itemKey = String(item.key || '').trim();
+                        return itemKey.toLowerCase() === key.toLowerCase();
+                    });
+                    if (found) {
+                        data = [found];
+                    }
+                }
 
                 if (!data || data.length === 0) {
-                    errorMessage.innerText = "Key inválida.";
-                    errorMessage.classList.add('show');
-                    setTimeout(() => errorMessage.classList.remove('show'), 3000);
+                    showError("Key inválida.");
                     return;
                 }
 
                 const keyEntry = data[0];
                 currentKeyEntry = keyEntry;
 
-                if (keyEntry.active === false) {
-                    errorMessage.innerText = "Esta key foi desativada.";
-                    errorMessage.classList.add('show');
-                    setTimeout(() => errorMessage.classList.remove('show'), 3500);
+                // trata active sendo booleano ou string:
+                const isActive = (val => {
+                    if (typeof val === 'boolean') return val;
+                    if (typeof val === 'number') return Boolean(val);
+                    if (typeof val === 'string') {
+                        const v = val.trim().toLowerCase();
+                        if (v === 'false' || v === '0' || v === '') return false;
+                        return true;
+                    }
+                    return Boolean(val);
+                })(keyEntry.active);
+
+                if (!isActive) {
+                    showError("Esta key foi desativada.");
                     return;
                 }
 
-                liberarAcesso(key);
-
+                // se quiser, aqui você pode atualizar o registro (ex.: marcar como used) com fetch PUT/POST
+                liberarAcesso(keyEntry);
             } catch (err) {
                 console.error(err);
-                errorMessage.innerText = "Erro ao validar a key. Tente novamente mais tarde.";
-                errorMessage.classList.add('show');
-                setTimeout(() => errorMessage.classList.remove('show'), 3500);
+                showError("Erro ao validar a key. Verifique conexão ou CORS.");
             }
         });
 
+        function showError(text) {
+            const errorMessage = document.getElementById('errorMessage');
+            errorMessage.innerText = text;
+            errorMessage.classList.add('show');
+            setTimeout(() => errorMessage.classList.remove('show'), 3500);
+        }
+
         function cancelarMensagemErro() { document.getElementById('errorMessage').classList.remove('show'); }
         function cancelLogin() { document.getElementById('passwordInput').value = ''; cancelarMensagemErro(); }
-        function liberarAcesso(key) { document.getElementById('loginContainer').style.display = 'none'; document.getElementById('mainContainer').classList.add('show'); showToast('Login realizado com sucesso!'); }
+        function liberarAcesso(keyEntry) {
+            document.getElementById('loginContainer').style.display = 'none';
+            document.getElementById('mainContainer').classList.add('show');
+            showToast('Login realizado com sucesso!');
+            // exemplo: mostrar info da key no console (pode remover)
+            console.log('Key válida:', keyEntry);
+        }
         function showSection(sectionId, clickedButton) {
             document.querySelectorAll('.option-block').forEach(s => s.classList.remove('open'));
             document.getElementById(sectionId).classList.add('open');
             document.querySelectorAll('.top-btn').forEach(b => b.classList.remove('active'));
-            clickedButton.classList.add('active');
+            if (clickedButton) clickedButton.classList.add('active');
         }
         function updatePrompt(checkbox, modName) { showToast(modName + (checkbox.checked ? " Ativado" : " Desativado")); }
         function updateSliderValue(slider) { document.getElementById('aimSliderValue').innerText = slider.value; showToast('Fov Valor: ' + slider.value); }
